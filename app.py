@@ -16,6 +16,10 @@ model = load_model()
 
 # === Save individual prediction to MySQL ===
 def insert_prediction_to_db(brand, type_, gender, material, size, predicted_price):
+    if not all([brand, type_, gender, material]) or predicted_price is None or predicted_price <= 0:
+        st.warning("⚠️ Prediction not saved due to missing or invalid data.")
+        return
+
     try:
         conn = mysql.connector.connect(
             host="localhost",
@@ -25,36 +29,29 @@ def insert_prediction_to_db(brand, type_, gender, material, size, predicted_pric
         )
         cursor = conn.cursor()
         query = """
-            INSERT INTO predictions (brand, type, gender, material, size, predicted_price)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO predictions (brand, type, gender, material, size, predicted_price, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, NOW())
         """
-        values = (brand, type_, gender, material, size, predicted_price)
+        values = (brand, type_, gender, material, size, round(predicted_price, 2))
         cursor.execute(query, values)
         conn.commit()
         cursor.close()
         conn.close()
+        st.toast("✅ Prediction saved to database!", icon="💾")
     except Exception as e:
-        st.error(f"Database error: {e}")
+        st.error(f"❌ Database error: {e}")
 
 # === Custom CSS Styling ===
 st.markdown("""
     <style>
-        html, body {
-            font-family: 'Segoe UI', sans-serif;
-        }
-        h1, h2 {
-            color: #7b2cbf;
-            margin-bottom: 0.5em;
-        }
+        html, body { font-family: 'Segoe UI', sans-serif; }
+        h1, h2 { color: #7b2cbf; margin-bottom: 0.5em; }
         .stButton>button {
-            background-color: #7b2cbf;
-            color: white;
-            border-radius: 0.5em;
-            font-size: 16px;
+            background-color: #7b2cbf; color: white;
+            border-radius: 0.5em; font-size: 16px;
         }
         .stDownloadButton>button {
-            background-color: #4cc9f0;
-            color: white;
+            background-color: #4cc9f0; color: white;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -79,23 +76,20 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 if uploaded_file:
     try:
-        # Save uploaded file to shared folder for admin dashboard access
+        # Save to local file
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        cleaned_filename = f"{timestamp}_{uploaded_file.name}".replace(" ", "_")
-        file_path = os.path.join(UPLOAD_FOLDER, cleaned_filename)
+        filename = f"{timestamp}_{uploaded_file.name}".replace(" ", "_")
+        file_path = os.path.join(UPLOAD_FOLDER, filename)
         with open(file_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
 
-        # Load and clean the CSV
         input_df = pd.read_csv(file_path, on_bad_lines='skip')
 
-        # Convert Size like "US 9.5" → 9.5
         if 'Size' in input_df.columns and input_df['Size'].dtype == object:
             input_df['Size'] = input_df['Size'].str.extract(r'([\d.]+)').astype(float)
 
-        # Check if all required columns exist
         if not all(col in input_df.columns for col in expected_columns):
-            st.error("❌ CSV is missing required columns. Required: Brand, Type, Gender, Material, Size")
+            st.error("❌ CSV missing required columns: Brand, Type, Gender, Material, Size")
         else:
             input_df = input_df[expected_columns]
             st.success("✅ File loaded successfully")
